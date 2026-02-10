@@ -1,0 +1,74 @@
+﻿@model List<GalleryApp.Models.Photo>
+
+@{
+    ViewData["Title"] = "Admin - Manage Photos";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Admin - Manage Photos</h2>
+</div>
+
+@if (Model.Count == 0)
+{
+    <p>No photos found.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Preview</th>
+                    <th>Author</th>
+                    <th>Uploaded</th>
+                    <th>Size</th>
+                    <th>Hashtags</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model)
+                {
+                    var tags = p.PhotoHashtags.Select(x => x.Hashtag.Tag).ToList();
+                    <tr>
+                        <td style="width: 140px;">
+                            <a href="@Url.Action("Details", "Photos", new { id = p.Id })">
+                                <img src="@Url.Action("File", "Photos", new { id = p.Id })"
+                                     style="width: 120px; height: 80px; object-fit: cover;" />
+                            </a>
+                        </td>
+                        <td>@(p.User?.Email ?? "Anonymous")</td>
+                        <td>@p.UploadedAtUtc.ToLocalTime()</td>
+                        <td>@(Math.Round(p.SizeBytes / 1024.0 / 1024.0, 2)) MB</td>
+                        <td>
+                            @if (tags.Count == 0)
+                            {
+                                <span>(none)</span>
+                            }
+                            else
+                            {
+
+                                <span>@string.Join(", ", tags.Select(t => "#" + t))</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="@Url.Action("Details", "Photos", new { id = p.Id })">
+                                Open
+                            </a>
+
+                            <form asp-action="AdminDelete" asp-controller="Photos" method="post" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@p.Id" />
+                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        onclick="return confirm('Delete this photo?');">
+                                    Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

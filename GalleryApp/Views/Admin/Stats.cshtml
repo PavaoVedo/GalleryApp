@@ -1,0 +1,56 @@
+﻿@model List<GalleryApp.Models.ViewModels.Admin.AdminUserStatsRow>
+
+@{
+    ViewData["Title"] = "Admin - Statistics";
+}
+
+<h2>Admin - User statistics</h2>
+
+@if (Model.Count == 0)
+{
+    <p>No logs yet. Use the app and come back.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Uploads</th>
+                    <th>Downloads (orig)</th>
+                    <th>Downloads (proc)</th>
+                    <th>Edits</th>
+                    <th>Searches</th>
+                    <th>Deletes</th>
+                    <th>Last activity</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in Model)
+                {
+                    <tr>
+                        <td>
+                            <div><strong>@(u.Email ?? "(no email)")</strong></div>
+                            <div class="text-muted" style="font-size: .85rem;">@u.UserId</div>
+                        </td>
+                        <td>@u.Uploads</td>
+                        <td>@u.DownloadsOriginal</td>
+                        <td>@u.DownloadsProcessed</td>
+                        <td>@u.Edits</td>
+                        <td>@u.Searches</td>
+                        <td>@u.Deletes</td>
+                        <td>@(u.LastActionUtc?.ToLocalTime().ToString() ?? "-")</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="@Url.Action("User", "Admin", new { id = u.UserId })">
+                                Details
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

@@ -1,0 +1,47 @@
+﻿@model GalleryApp.Models.ViewModels.EditPhotoViewModel
+
+@{
+    ViewData["Title"] = "Edit Photo";
+}
+
+<h2>Edit photo</h2>
+
+<div class="mb-3">
+    <div class="text-muted">
+        <div><strong>Author:</strong> @Model.AuthorEmail</div>
+        <div><strong>Uploaded:</strong> @Model.UploadedAtUtc.ToLocalTime()</div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.PreviewUrl))
+{
+    <div class="mb-3">
+        <img src="@Model.PreviewUrl" style="max-width: 800px; width: 100%;" />
+    </div>
+}
+
+<form asp-action="Edit" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Description"></label>
+        <input class="form-control" asp-for="Description" maxlength="500" />
+        <span class="text-danger" asp-validation-for="Description"></span>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Hashtags">Hashtags (comma separated)</label>
+        <input class="form-control" asp-for="Hashtags" placeholder="#cat, nature, travel" />
+        <span class="text-danger" asp-validation-for="Hashtags"></span>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <a class="btn btn-outline-secondary" href="@Url.Action("Details", "Photos", new { id = Model.Id })">Cancel</a>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

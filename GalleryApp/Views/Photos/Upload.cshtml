@@ -1,0 +1,33 @@
+﻿@{
+    ViewData["Title"] = "Upload Photo";
+}
+
+<h2>Upload Photo</h2>
+
+<form asp-action="Upload" method="post" enctype="multipart/form-data">
+    @Html.AntiForgeryToken()
+
+    <div class="mb-3">
+        <label class="form-label">File</label>
+        <input class="form-control" type="file" name="file" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Description</label>
+        <input class="form-control" type="text" name="description" maxlength="500" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Hashtags (comma separated)</label>
+        <input class="form-control" type="text" name="hashtags" placeholder="#cat, #nature, travel" />
+    </div>
+
+    <div class="text-danger">
+        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+        {
+            <div>@error.ErrorMessage</div>
+        }
+    </div>
+
+    <button class="btn btn-primary" type="submit">Upload</button>
+</form>

@@ -1,0 +1,53 @@
+﻿@model List<GalleryApp.Models.Photo>
+
+@{
+    ViewData["Title"] = "Latest Photos";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Latest photos</h2>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <a class="btn btn-primary" href="@Url.Action("Upload", "Photos")">Upload</a>
+    }
+</div>
+
+@if (Model.Count == 0)
+{
+    <p>No photos yet.</p>
+}
+else
+{
+    <div class="row">
+        @foreach (var p in Model)
+        {
+            var tags = p.PhotoHashtags.Select(x => x.Hashtag.Tag).ToList();
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="card">
+                    <a href="@Url.Action("Details", "Photos", new { id = p.Id })">
+                        <img class="card-img-top"
+                             src="@Url.Action("File", "Photos", new { id = p.Id })"
+                             style="height: 220px; object-fit: cover;" />
+                    </a>
+                    <div class="card-body">
+                        <div><strong>@(p.User?.Email ?? "Anonymous")</strong></div>
+                        <div class="text-muted" style="font-size: 0.9rem;">
+                            @p.UploadedAtUtc.ToLocalTime()
+                        </div>
+
+                        <div class="mt-2">
+                            @p.Description
+                        </div>
+
+                        <div class="mt-2" style="font-size: 0.9rem;">
+                            @if (tags.Count > 0)
+                            {
+                                @string.Join(" ", tags.Select(t => "#" + t))
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
