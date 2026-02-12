@@ -1,32 +1,39 @@
-﻿using GalleryApp.Data;
+﻿using System.Security.Claims;
+using GalleryApp.Data;
 using GalleryApp.Models;
 using GalleryApp.Models.ViewModels;
+using GalleryApp.Services.Images;
+using GalleryApp.Services.Logging.Commands;
+using GalleryApp.Services.Photos;               
 using GalleryApp.Services.Plans;
 using GalleryApp.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
+
 namespace GalleryApp.Controllers;
-using GalleryApp.Models.ViewModels;
-using GalleryApp.Services.Images;
-using GalleryApp.Services.Logging;
 
 public class PhotosController : Controller
 {
     private readonly ApplicationDbContext _db;
     private readonly IStorageService _storage;
-    private readonly IActionLogger _logger;
     private readonly IImageProcessor _imageProcessor;
+    private readonly ActionCommandDispatcher _dispatcher;
+    private readonly PhotoFacade _photoFacade;  
 
-    public PhotosController(ApplicationDbContext db, IStorageService storage, IActionLogger logger, IImageProcessor imageProcessor)
+    public PhotosController(
+        ApplicationDbContext db,
+        IStorageService storage,
+        IImageProcessor imageProcessor,
+        ActionCommandDispatcher dispatcher,
+        PhotoFacade photoFacade)                
     {
         _db = db;
         _storage = storage;
-        _logger = logger;
         _imageProcessor = imageProcessor;
+        _dispatcher = dispatcher;
+        _photoFacade = photoFacade;            
     }
-
 
     [Authorize]
     [HttpGet]
@@ -44,7 +51,6 @@ public class PhotosController : Controller
         }
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-
         var user = await _db.Users.FirstAsync(u => u.Id == userId, ct);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -110,18 +116,19 @@ public class PhotosController : Controller
         }
 
         _db.Photos.Add(photo);
-
         user.UploadsTodayCount += 1;
 
         await _db.SaveChangesAsync(ct);
 
-        await _logger.LogAsync(
-    action: "UploadPhoto",
-    entityType: "Photo",
-    entityId: photo.Id.ToString(),
-    details: $"sizeBytes={photo.SizeBytes}; key={photo.FileKey}",
-    ct: ct);
-
+        await _dispatcher.DispatchAsync(
+            new LogActionCommand(
+                action: "UploadPhoto",
+                entityType: "Photo",
+                entityId: photo.Id.ToString(),
+                details: $"sizeBytes={photo.SizeBytes}; key={photo.FileKey}"
+            ),
+            ct
+        );
 
         return RedirectToAction(nameof(Details), new { id = photo.Id });
     }
@@ -143,10 +150,10 @@ public class PhotosController : Controller
     [HttpGet]
     public async Task<IActionResult> File(Guid id, CancellationToken ct)
     {
-        var photo = await _db.Photos.FirstOrDefaultAsync(p => p.Id == id, ct);
+        var photo = await _db.Photos.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
         if (photo == null) return NotFound();
 
-        var stream = await _storage.OpenReadAsync(photo.FileKey, ct);
+        var stream = await _photoFacade.OpenOriginalAsync(id, ct);
         return File(stream, photo.ContentType ?? "application/octet-stream");
     }
 
@@ -160,13 +167,16 @@ public class PhotosController : Controller
         var stream = await _storage.OpenReadAsync(photo.FileKey, ct);
 
         var downloadName = photo.OriginalFileName ?? Path.GetFileName(photo.FileKey);
-        await _logger.LogAsync(
-    action: "DownloadOriginal",
-    entityType: "Photo",
-    entityId: photo.Id.ToString(),
-    details: photo.FileKey,
-    ct: ct);
 
+        await _dispatcher.DispatchAsync(
+            new LogActionCommand(
+                action: "DownloadOriginal",
+                entityType: "Photo",
+                entityId: photo.Id.ToString(),
+                details: photo.FileKey
+            ),
+            ct
+        );
 
         return File(stream, photo.ContentType ?? "application/octet-stream", downloadName);
     }
@@ -272,13 +282,15 @@ public class PhotosController : Controller
 
         await _db.SaveChangesAsync(ct);
 
-        await _logger.LogAsync(
-    action: "EditPhotoMetadata",
-    entityType: "Photo",
-    entityId: photo.Id.ToString(),
-    details: $"descChanged={(photo.Description ?? "")}; tags={model.Hashtags}",
-    ct: ct);
-
+        await _dispatcher.DispatchAsync(
+            new LogActionCommand(
+                action: "EditPhotoMetadata",
+                entityType: "Photo",
+                entityId: photo.Id.ToString(),
+                details: $"descChanged={(photo.Description ?? "")}; tags={model.Hashtags}"
+            ),
+            ct
+        );
 
         return RedirectToAction(nameof(Details), new { id = photo.Id });
     }
@@ -296,29 +308,13 @@ public class PhotosController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var photo = await _db.Photos
-            .Include(p => p.User)
-            .Include(p => p.PhotoHashtags).ThenInclude(ph => ph.Hashtag)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
+        var photo = await _db.Photos.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
         if (photo == null) return NotFound();
 
-        if (!CanEditPhoto(photo))
+        if (!User.IsInRole("Admin") && photo.UserId != User.FindFirstValue(ClaimTypes.NameIdentifier))
             return Forbid();
 
-        _db.PhotoHashtags.RemoveRange(photo.PhotoHashtags);
-
-        _db.Photos.Remove(photo);
-
-        await _storage.DeleteAsync(photo.FileKey, ct);
-
-        await _db.SaveChangesAsync(ct);
-        await _logger.LogAsync(
-    action: "DeletePhoto",
-    entityType: "Photo",
-    entityId: id.ToString(),
-    details: "Deleted by owner/admin",
-    ct: ct);
+        await _photoFacade.DeletePhotoAsync(id, ct);
 
         return RedirectToAction("Index", "Home");
     }
@@ -342,25 +338,7 @@ public class PhotosController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> AdminDelete(Guid id, CancellationToken ct)
     {
-        var photo = await _db.Photos
-            .Include(p => p.PhotoHashtags)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
-        if (photo == null) return NotFound();
-
-        _db.PhotoHashtags.RemoveRange(photo.PhotoHashtags);
-        _db.Photos.Remove(photo);
-
-        await _storage.DeleteAsync(photo.FileKey, ct);
-
-        await _db.SaveChangesAsync(ct);
-        await _logger.LogAsync(
-    action: "AdminDeletePhoto",
-    entityType: "Photo",
-    entityId: id.ToString(),
-    details: "Deleted by admin",
-    ct: ct);
-
+        await _photoFacade.DeletePhotoAsync(id, ct);
         return RedirectToAction(nameof(AdminIndex));
     }
 
@@ -414,7 +392,7 @@ public class PhotosController : Controller
         var tags = ParseTags(model.Hashtags);
         foreach (var tag in tags)
         {
-            var t = tag; 
+            var t = tag;
             query = query.Where(p => p.PhotoHashtags.Any(ph => ph.Hashtag.Tag == t));
         }
 
@@ -422,13 +400,16 @@ public class PhotosController : Controller
             .OrderByDescending(p => p.UploadedAtUtc)
             .Take(200)
             .ToListAsync(ct);
-        await _logger.LogAsync(
-    action: "SearchPhotos",
-    entityType: "Photo",
-    entityId: null,
-    details: $"tags={model.Hashtags}; author={model.AuthorEmail}; minMb={model.MinSizeMb}; maxMb={model.MaxSizeMb}; from={model.FromDate}; to={model.ToDate}; results={model.Results.Count}",
-    ct: ct);
 
+        await _dispatcher.DispatchAsync(
+            new LogActionCommand(
+                action: "SearchPhotos",
+                entityType: "Photo",
+                entityId: null,
+                details: $"tags={model.Hashtags}; author={model.AuthorEmail}; minMb={model.MinSizeMb}; maxMb={model.MaxSizeMb}; from={model.FromDate}; to={model.ToDate}; results={model.Results.Count}"
+            ),
+            ct
+        );
 
         return View(model);
     }
@@ -444,6 +425,7 @@ public class PhotosController : Controller
 
         return View(logs);
     }
+
     [AllowAnonymous]
     [HttpGet]
     public async Task<IActionResult> DownloadProcessed(Guid id, CancellationToken ct)
@@ -469,20 +451,21 @@ public class PhotosController : Controller
         if (photo == null) return NotFound();
 
         await using var input = await _storage.OpenReadAsync(photo.FileKey, ct);
-
         var (bytes, contentType, extension) = await _imageProcessor.ProcessAsync(input, model, ct);
 
-        await _logger.LogAsync(
-            action: "DownloadProcessed",
-            entityType: "Photo",
-            entityId: photo.Id.ToString(),
-            details: $"format={model.Format}; w={model.ResizeWidth}; h={model.ResizeHeight}; sepia={model.Sepia}; blur={model.Blur}",
-            ct: ct);
+        await _dispatcher.DispatchAsync(
+            new LogActionCommand(
+                action: "DownloadProcessed",
+                entityType: "Photo",
+                entityId: photo.Id.ToString(),
+                details: $"format={model.Format}; w={model.ResizeWidth}; h={model.ResizeHeight}; sepia={model.Sepia}; blur={model.Blur}"
+            ),
+            ct
+        );
 
         var baseName = Path.GetFileNameWithoutExtension(photo.OriginalFileName ?? "photo");
         var downloadName = $"{baseName}_processed{extension}";
 
         return File(bytes, contentType, downloadName);
     }
-
 }

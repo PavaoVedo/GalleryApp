@@ -10,6 +10,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Identity.UI.Services;
 
+using GalleryApp.Services.Logging.Commands;
+using GalleryApp.Services.Photos;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +23,6 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
-
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -42,7 +43,6 @@ builder.Services.AddAuthentication()
     {
         options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"]!;
         options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"]!;
-
         options.Scope.Add("user:email");
     });
 
@@ -55,13 +55,26 @@ builder.Services.Configure<MinioStorageOptions>(builder.Configuration.GetSection
 builder.Services.AddSingleton<LocalStorageService>();
 builder.Services.AddSingleton<MinioStorageService>();
 
-builder.Services.AddSingleton<IStorageService, StorageSelectorService>();
+builder.Services.AddSingleton<StorageSelectorService>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IActionLogger, ActionLogger>();
+
+builder.Services.AddScoped<ActionCommandDispatcher>();
+
+builder.Services.AddScoped<IStorageService>(sp =>
+{
+    var selector = sp.GetRequiredService<StorageSelectorService>();
+    var logger = sp.GetRequiredService<IActionLogger>();
+    return new LoggingStorageDecorator(selector, logger);
+});
+
+builder.Services.AddScoped<PhotoFacade>();
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
 using (var scope = app.Services.CreateScope())
 {
     var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -73,6 +86,7 @@ using (var scope = app.Services.CreateScope())
         await minio.EnsureBucketAsync();
     }
 }
+
 await IdentitySeed.SeedAsync(app.Services, app.Configuration);
 
 if (!app.Environment.IsDevelopment())
