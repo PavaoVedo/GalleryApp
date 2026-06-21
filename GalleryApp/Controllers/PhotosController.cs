@@ -19,20 +19,20 @@ public class PhotosController : Controller
     private readonly IStorageService _storage;
     private readonly IImageProcessor _imageProcessor;
     private readonly ActionCommandDispatcher _dispatcher;
-    private readonly PhotoFacade _photoFacade;  
+    private readonly IPhotoFacade _photoFacade;
 
     public PhotosController(
-        ApplicationDbContext db,
-        IStorageService storage,
-        IImageProcessor imageProcessor,
-        ActionCommandDispatcher dispatcher,
-        PhotoFacade photoFacade)                
+      ApplicationDbContext db,
+      IStorageService storage,
+      IImageProcessor imageProcessor,
+      ActionCommandDispatcher dispatcher,
+      IPhotoFacade photoFacade)
     {
         _db = db;
         _storage = storage;
         _imageProcessor = imageProcessor;
         _dispatcher = dispatcher;
-        _photoFacade = photoFacade;            
+        _photoFacade = photoFacade;
     }
 
     [Authorize]

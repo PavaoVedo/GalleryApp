@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Identity.UI.Services;
-
+using GalleryApp.Services.Aspects;
 using GalleryApp.Services.Logging.Commands;
 using GalleryApp.Services.Photos;
 
@@ -45,8 +45,9 @@ builder.Services.AddAuthentication()
         options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"]!;
         options.Scope.Add("user:email");
     });
+builder.Services.AddAspects();
 
-builder.Services.AddScoped<IImageProcessor, ImageSharpProcessor>();
+builder.Services.AddProxiedScoped<IImageProcessor, ImageSharpProcessor>();
 builder.Services.AddSingleton<IEmailSender, GalleryApp.Services.Email.DevEmailSender>();
 
 builder.Services.Configure<LocalStorageOptions>(builder.Configuration.GetSection("Storage:Local"));
@@ -58,7 +59,7 @@ builder.Services.AddSingleton<MinioStorageService>();
 builder.Services.AddSingleton<StorageSelectorService>();
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<IActionLogger, ActionLogger>();
+builder.Services.AddProxiedScoped<IActionLogger, ActionLogger>();
 
 builder.Services.AddScoped<ActionCommandDispatcher>();
 
@@ -69,7 +70,7 @@ builder.Services.AddScoped<IStorageService>(sp =>
     return new LoggingStorageDecorator(selector, logger);
 });
 
-builder.Services.AddScoped<PhotoFacade>();
+builder.Services.AddProxiedScoped<IPhotoFacade, PhotoFacade>();
 
 builder.Services.AddAuthorization();
 

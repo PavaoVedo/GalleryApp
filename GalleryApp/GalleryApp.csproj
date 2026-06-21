@@ -22,6 +22,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
+	<PackageReference Include="Castle.Core" Version="5.1.1" />
+	<PackageReference Include="Castle.Core.AsyncInterceptor" Version="2.1.0" />
   </ItemGroup>
 
 </Project>
