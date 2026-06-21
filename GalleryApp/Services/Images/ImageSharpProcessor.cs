@@ -5,6 +5,7 @@ using SixLabors.ImageSharp.Formats.Bmp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Processing;
+using GalleryApp.Services.Functional;
 
 namespace GalleryApp.Services.Images;
 
@@ -14,20 +15,8 @@ public class ImageSharpProcessor : IImageProcessor
     {
         using var image = await Image.LoadAsync(input, ct);
 
-        if (options.ResizeWidth.HasValue && options.ResizeHeight.HasValue)
-        {
-            image.Mutate(x => x.Resize(options.ResizeWidth.Value, options.ResizeHeight.Value));
-        }
-
-        if (options.Sepia)
-        {
-            image.Mutate(x => x.Sepia());
-        }
-
-        if (options.Blur > 0)
-        {
-            image.Mutate(x => x.GaussianBlur(options.Blur));
-        }
+        var pipeline = PhotoFunctions.BuildImagePipeline(options);
+        image.Mutate(ctx => pipeline(ctx));
 
         options.Format = options.Format?.Trim().ToLowerInvariant() ?? "jpg";
 

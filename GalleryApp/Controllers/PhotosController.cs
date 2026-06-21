@@ -10,7 +10,7 @@ using GalleryApp.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-
+using GalleryApp.Services.Functional;
 namespace GalleryApp.Controllers;
 
 public class PhotosController : Controller
@@ -62,15 +62,10 @@ public class PhotosController : Controller
 
         var policy = PlanPolicyFactory.FromPlan(user.CurrentPlan);
 
-        if (file.Length > policy.MaxBytesPerPhoto)
+        var validation = PhotoFunctions.ValidateUpload(policy, file.Length, user.UploadsTodayCount);
+        if (!validation.IsSuccess)
         {
-            ModelState.AddModelError("", $"File too large for {policy.Name}. Max {policy.MaxBytesPerPhoto / (1024 * 1024)} MB.");
-            return View();
-        }
-
-        if (user.UploadsTodayCount >= policy.MaxUploadsPerDay)
-        {
-            ModelState.AddModelError("", $"Daily upload limit reached for {policy.Name} ({policy.MaxUploadsPerDay}/day).");
+            ModelState.AddModelError("", validation.Error!);
             return View();
         }
 
@@ -181,19 +176,8 @@ public class PhotosController : Controller
         return File(stream, photo.ContentType ?? "application/octet-stream", downloadName);
     }
 
-    private static List<string> ParseTags(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return new List<string>();
-
-        return raw
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(t => t.Trim().TrimStart('#'))
-            .Where(t => t.Length > 0)
-            .Select(t => t.ToLowerInvariant())
-            .Distinct()
-            .Take(20)
-            .ToList();
-    }
+    private static List<string> ParseTags(string? raw) =>
+        PhotoFunctions.NormalizeTags(raw).ToList();
 
     [Authorize]
     [HttpGet]
@@ -359,42 +343,8 @@ public class PhotosController : Controller
             .Include(p => p.PhotoHashtags).ThenInclude(ph => ph.Hashtag)
             .AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(model.AuthorEmail))
-        {
-            var email = model.AuthorEmail.Trim().ToLower();
-            query = query.Where(p => p.User != null && p.User.Email != null && p.User.Email.ToLower().Contains(email));
-        }
-
-        if (model.MinSizeMb.HasValue)
-        {
-            var minBytes = (long)(model.MinSizeMb.Value * 1024 * 1024);
-            query = query.Where(p => p.SizeBytes >= minBytes);
-        }
-
-        if (model.MaxSizeMb.HasValue)
-        {
-            var maxBytes = (long)(model.MaxSizeMb.Value * 1024 * 1024);
-            query = query.Where(p => p.SizeBytes <= maxBytes);
-        }
-
-        if (model.FromDate.HasValue)
-        {
-            var fromUtc = DateTime.SpecifyKind(model.FromDate.Value.Date, DateTimeKind.Utc);
-            query = query.Where(p => p.UploadedAtUtc >= fromUtc);
-        }
-
-        if (model.ToDate.HasValue)
-        {
-            var toUtcExclusive = DateTime.SpecifyKind(model.ToDate.Value.Date.AddDays(1), DateTimeKind.Utc);
-            query = query.Where(p => p.UploadedAtUtc < toUtcExclusive);
-        }
-
-        var tags = ParseTags(model.Hashtags);
-        foreach (var tag in tags)
-        {
-            var t = tag;
-            query = query.Where(p => p.PhotoHashtags.Any(ph => ph.Hashtag.Tag == t));
-        }
+        query = PhotoFunctions.BuildPhotoFilters(model)
+            .Aggregate(query, (current, filter) => filter(current));
 
         model.Results = await query
             .OrderByDescending(p => p.UploadedAtUtc)
