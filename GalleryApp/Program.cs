@@ -97,6 +97,9 @@ app.MapPrometheusScrapingEndpoint();
 
 using (var scope = app.Services.CreateScope())
 {
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+
     var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
     var provider = cfg["Storage:Provider"];
 
