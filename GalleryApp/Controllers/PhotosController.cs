@@ -1,16 +1,17 @@
-﻿using System.Security.Claims;
-using GalleryApp.Data;
+﻿using GalleryApp.Data;
 using GalleryApp.Models;
 using GalleryApp.Models.ViewModels;
+using GalleryApp.Services.Functional;
 using GalleryApp.Services.Images;
 using GalleryApp.Services.Logging.Commands;
+using GalleryApp.Services.Metrics;
 using GalleryApp.Services.Photos;               
 using GalleryApp.Services.Plans;
 using GalleryApp.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using GalleryApp.Services.Functional;
+using System.Security.Claims;
 namespace GalleryApp.Controllers;
 
 public class PhotosController : Controller
@@ -20,19 +21,21 @@ public class PhotosController : Controller
     private readonly IImageProcessor _imageProcessor;
     private readonly ActionCommandDispatcher _dispatcher;
     private readonly IPhotoFacade _photoFacade;
-
+    private readonly GalleryMetrics _metrics;
     public PhotosController(
-      ApplicationDbContext db,
-      IStorageService storage,
-      IImageProcessor imageProcessor,
-      ActionCommandDispatcher dispatcher,
-      IPhotoFacade photoFacade)
+        ApplicationDbContext db,
+        IStorageService storage,
+        IImageProcessor imageProcessor,
+        ActionCommandDispatcher dispatcher,
+        IPhotoFacade photoFacade,
+        GalleryMetrics metrics)
     {
         _db = db;
         _storage = storage;
         _imageProcessor = imageProcessor;
         _dispatcher = dispatcher;
         _photoFacade = photoFacade;
+        _metrics = metrics;
     }
 
     [Authorize]
@@ -68,6 +71,8 @@ public class PhotosController : Controller
             ModelState.AddModelError("", validation.Error!);
             return View();
         }
+
+        using var uploadScope = _metrics.TrackUpload();
 
         var ext = Path.GetExtension(file.FileName);
         if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
@@ -114,6 +119,9 @@ public class PhotosController : Controller
         user.UploadsTodayCount += 1;
 
         await _db.SaveChangesAsync(ct);
+
+        _metrics.PhotoUploaded(policy.Name, photo.SizeBytes);  
+
 
         await _dispatcher.DispatchAsync(
             new LogActionCommand(
@@ -300,6 +308,8 @@ public class PhotosController : Controller
 
         await _photoFacade.DeletePhotoAsync(id, ct);
 
+        _metrics.PhotoDeleted();
+
         return RedirectToAction("Index", "Home");
     }
 
@@ -323,6 +333,7 @@ public class PhotosController : Controller
     public async Task<IActionResult> AdminDelete(Guid id, CancellationToken ct)
     {
         await _photoFacade.DeletePhotoAsync(id, ct);
+        _metrics.PhotoDeleted();
         return RedirectToAction(nameof(AdminIndex));
     }
 
@@ -350,6 +361,8 @@ public class PhotosController : Controller
             .OrderByDescending(p => p.UploadedAtUtc)
             .Take(200)
             .ToListAsync(ct);
+
+        _metrics.SearchPerformed(model.Results.Count);
 
         await _dispatcher.DispatchAsync(
             new LogActionCommand(

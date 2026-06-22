@@ -72,14 +72,14 @@ public static class PhotoFunctions
 
         foreach (var tag in NormalizeTags(m.Hashtags))
         {
-            var t = tag; 
+            var t = tag;
             filters.Add(q => q.Where(p => p.PhotoHashtags.Any(ph => ph.Hashtag.Tag == t)));
         }
 
         return filters;
     }
 
-    
+
     public static Func<IImageProcessingContext, IImageProcessingContext> BuildImagePipeline(
         DownloadProcessedViewModel o)
     {
@@ -94,5 +94,6 @@ public static class PhotoFunctions
         if (o.Blur > 0)
             steps.Add(ctx => ctx.GaussianBlur(o.Blur));
 
-        return steps.ComposeAll(); 
+        return steps.ComposeAll();
+    }
 }

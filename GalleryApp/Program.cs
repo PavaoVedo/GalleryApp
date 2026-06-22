@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 using GalleryApp.Services.Aspects;
 using GalleryApp.Services.Logging.Commands;
 using GalleryApp.Services.Photos;
+using GalleryApp.Services.Metrics;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -72,9 +74,26 @@ builder.Services.AddScoped<IStorageService>(sp =>
 
 builder.Services.AddProxiedScoped<IPhotoFacade, PhotoFacade>();
 
+builder.Services.AddMetrics();
+builder.Services.AddSingleton<GalleryMetrics>();
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter(GalleryMetrics.MeterName)        
+            .AddAspNetCoreInstrumentation()            
+            .AddRuntimeInstrumentation()               
+            .AddPrometheusExporter();
+    });
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+app.Services.GetRequiredService<GalleryMetrics>();
+
+app.MapPrometheusScrapingEndpoint();
 
 using (var scope = app.Services.CreateScope())
 {
