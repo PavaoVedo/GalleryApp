@@ -20,11 +20,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Missing ConnectionStrings:DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
+        options.UseNpgsql(connectionString));
+}
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -35,18 +37,30 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-builder.Services.AddAuthentication()
-    .AddGoogle(options =>
+var authBuilder = builder.Services.AddAuthentication();
+
+var googleId = builder.Configuration["Authentication:Google:ClientId"];
+var googleSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+if (!string.IsNullOrWhiteSpace(googleId) && !string.IsNullOrWhiteSpace(googleSecret))
+{
+    authBuilder.AddGoogle(options =>
     {
-        options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
-        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
-    })
-    .AddGitHub(options =>
+        options.ClientId = googleId;
+        options.ClientSecret = googleSecret;
+    });
+}
+
+var githubId = builder.Configuration["Authentication:GitHub:ClientId"];
+var githubSecret = builder.Configuration["Authentication:GitHub:ClientSecret"];
+if (!string.IsNullOrWhiteSpace(githubId) && !string.IsNullOrWhiteSpace(githubSecret))
+{
+    authBuilder.AddGitHub(options =>
     {
-        options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"]!;
-        options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"]!;
+        options.ClientId = githubId;
+        options.ClientSecret = githubSecret;
         options.Scope.Add("user:email");
     });
+}
 builder.Services.AddAspects();
 
 builder.Services.AddProxiedScoped<IImageProcessor, ImageSharpProcessor>();
@@ -98,7 +112,10 @@ app.MapPrometheusScrapingEndpoint();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await db.Database.MigrateAsync();
+    if (app.Environment.IsEnvironment("Testing"))
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
 
     var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
     var provider = cfg["Storage:Provider"];
@@ -112,7 +129,7 @@ using (var scope = app.Services.CreateScope())
 
 await IdentitySeed.SeedAsync(app.Services, app.Configuration);
 
-if (!app.Environment.IsDevelopment())
+if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
@@ -133,3 +150,5 @@ app.MapControllerRoute(
 app.MapRazorPages();
 
 app.Run();
+
+public partial class Program { }
