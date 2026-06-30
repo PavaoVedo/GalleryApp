@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gallery
+      POSTGRES_PASSWORD: gallery_pw
+      POSTGRES_DB: gallery
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gallery -d gallery"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - miniodata:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=gallery;Username=gallery;Password=gallery_pw"
+      Admin__Email: "admin@gallery.local"
+      Admin__Password: "Admin12345"
+      Storage__Provider: "Local"
+      Storage__Local__RootPath: "/app/storage"
+      Storage__Minio__Endpoint: "minio:9000"
+      Storage__Minio__AccessKey: "minioadmin"
+      Storage__Minio__SecretKey: "minioadmin"
+      Storage__Minio__Bucket: "galleryapp"
+      Storage__Minio__UseSSL: "false"
+      # Authentication__Google__ClientId: "..."
+      # Authentication__Google__ClientSecret: "..."
+      # Authentication__GitHub__ClientId: "..."
+      # Authentication__GitHub__ClientSecret: "..."
+    ports:
+      - "8080:8080"
+    volumes:
+      - photostorage:/app/storage
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  miniodata:
+  photostorage:

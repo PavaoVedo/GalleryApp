@@ -9,20 +9,24 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Identity.UI.Services;
-
+using GalleryApp.Services.Aspects;
 using GalleryApp.Services.Logging.Commands;
 using GalleryApp.Services.Photos;
+using GalleryApp.Services.Metrics;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Missing ConnectionStrings:DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
+        options.UseNpgsql(connectionString));
+}
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -33,20 +37,33 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-builder.Services.AddAuthentication()
-    .AddGoogle(options =>
+var authBuilder = builder.Services.AddAuthentication();
+
+var googleId = builder.Configuration["Authentication:Google:ClientId"];
+var googleSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+if (!string.IsNullOrWhiteSpace(googleId) && !string.IsNullOrWhiteSpace(googleSecret))
+{
+    authBuilder.AddGoogle(options =>
     {
-        options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
-        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
-    })
-    .AddGitHub(options =>
+        options.ClientId = googleId;
+        options.ClientSecret = googleSecret;
+    });
+}
+
+var githubId = builder.Configuration["Authentication:GitHub:ClientId"];
+var githubSecret = builder.Configuration["Authentication:GitHub:ClientSecret"];
+if (!string.IsNullOrWhiteSpace(githubId) && !string.IsNullOrWhiteSpace(githubSecret))
+{
+    authBuilder.AddGitHub(options =>
     {
-        options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"]!;
-        options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"]!;
+        options.ClientId = githubId;
+        options.ClientSecret = githubSecret;
         options.Scope.Add("user:email");
     });
+}
+builder.Services.AddAspects();
 
-builder.Services.AddScoped<IImageProcessor, ImageSharpProcessor>();
+builder.Services.AddProxiedScoped<IImageProcessor, ImageSharpProcessor>();
 builder.Services.AddSingleton<IEmailSender, GalleryApp.Services.Email.DevEmailSender>();
 
 builder.Services.Configure<LocalStorageOptions>(builder.Configuration.GetSection("Storage:Local"));
@@ -58,7 +75,7 @@ builder.Services.AddSingleton<MinioStorageService>();
 builder.Services.AddSingleton<StorageSelectorService>();
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<IActionLogger, ActionLogger>();
+builder.Services.AddProxiedScoped<IActionLogger, ActionLogger>();
 
 builder.Services.AddScoped<ActionCommandDispatcher>();
 
@@ -69,14 +86,37 @@ builder.Services.AddScoped<IStorageService>(sp =>
     return new LoggingStorageDecorator(selector, logger);
 });
 
-builder.Services.AddScoped<PhotoFacade>();
+builder.Services.AddProxiedScoped<IPhotoFacade, PhotoFacade>();
+
+builder.Services.AddMetrics();
+builder.Services.AddSingleton<GalleryMetrics>();
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter(GalleryMetrics.MeterName)        
+            .AddAspNetCoreInstrumentation()            
+            .AddRuntimeInstrumentation()               
+            .AddPrometheusExporter();
+    });
 
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.Services.GetRequiredService<GalleryMetrics>();
+
+app.MapPrometheusScrapingEndpoint();
+
 using (var scope = app.Services.CreateScope())
 {
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    if (app.Environment.IsEnvironment("Testing"))
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
+
     var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
     var provider = cfg["Storage:Provider"];
 
@@ -89,7 +129,7 @@ using (var scope = app.Services.CreateScope())
 
 await IdentitySeed.SeedAsync(app.Services, app.Configuration);
 
-if (!app.Environment.IsDevelopment())
+if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
@@ -110,3 +150,5 @@ app.MapControllerRoute(
 app.MapRazorPages();
 
 app.Run();
+
+public partial class Program { }

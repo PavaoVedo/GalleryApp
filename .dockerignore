@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.git/
+GalleryApp/Storage/
+**/*.user
+.dockerignore
+Dockerfile
+docker-compose*.yml

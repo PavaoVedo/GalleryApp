@@ -1,4 +1,6 @@
 ﻿using GalleryApp.Models.ViewModels;
+using GalleryApp.Services.Functional;
+using GalleryApp.Services.Metrics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Bmp;
@@ -10,35 +12,37 @@ namespace GalleryApp.Services.Images;
 
 public class ImageSharpProcessor : IImageProcessor
 {
-    public async Task<(byte[] bytes, string contentType, string extension)> ProcessAsync(Stream input, DownloadProcessedViewModel options, CancellationToken ct)
+    private readonly GalleryMetrics _metrics;
+
+    public ImageSharpProcessor(GalleryMetrics metrics) => _metrics = metrics;
+
+    public async Task<(byte[] bytes, string contentType, string extension)> ProcessAsync(
+        Stream input, DownloadProcessedViewModel options, CancellationToken ct)
     {
-        using var image = await Image.LoadAsync(input, ct);
-
-        if (options.ResizeWidth.HasValue && options.ResizeHeight.HasValue)
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
         {
-            image.Mutate(x => x.Resize(options.ResizeWidth.Value, options.ResizeHeight.Value));
+            using var image = await Image.LoadAsync(input, ct);
+
+            var pipeline = PhotoFunctions.BuildImagePipeline(options);
+            image.Mutate(ctx => pipeline(ctx));
+
+            options.Format = options.Format?.Trim().ToLowerInvariant() ?? "jpg";
+
+            using var ms = new MemoryStream();
+
+            return options.Format switch
+            {
+                "png" => await SaveAsync(image, ms, new PngEncoder(), "image/png", ".png", ct),
+                "bmp" => await SaveAsync(image, ms, new BmpEncoder(), "image/bmp", ".bmp", ct),
+                _ => await SaveAsync(image, ms, new JpegEncoder { Quality = 90 }, "image/jpeg", ".jpg", ct),
+            };
         }
-
-        if (options.Sepia)
+        finally
         {
-            image.Mutate(x => x.Sepia());
+            sw.Stop();
+            _metrics.RecordImageProcessing(sw.Elapsed.TotalMilliseconds, options.Format ?? "jpg");
         }
-
-        if (options.Blur > 0)
-        {
-            image.Mutate(x => x.GaussianBlur(options.Blur));
-        }
-
-        options.Format = options.Format?.Trim().ToLowerInvariant() ?? "jpg";
-
-        using var ms = new MemoryStream();
-
-        return options.Format switch
-        {
-            "png" => await SaveAsync(image, ms, new PngEncoder(), "image/png", ".png", ct),
-            "bmp" => await SaveAsync(image, ms, new BmpEncoder(), "image/bmp", ".bmp", ct),
-            _ => await SaveAsync(image, ms, new JpegEncoder { Quality = 90 }, "image/jpeg", ".jpg", ct),
-        };
     }
 
     private static async Task<(byte[] bytes, string contentType, string extension)> SaveAsync(

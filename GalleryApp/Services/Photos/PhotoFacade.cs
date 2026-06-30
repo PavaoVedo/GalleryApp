@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GalleryApp.Services.Photos;
 
-public class PhotoFacade
+public class PhotoFacade : IPhotoFacade
 {
     private readonly ApplicationDbContext _db;
     private readonly IStorageService _storage;
